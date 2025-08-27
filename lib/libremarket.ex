@@ -1,6 +1,6 @@
 defmodule Libremarket do
   @moduledoc """
-  Documentation for `Libremarket`.
+  Configuración de Libremarket
   """
 
   use Application
