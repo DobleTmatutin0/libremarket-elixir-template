@@ -6,9 +6,13 @@ Proyecto base para la aplicación LibreMarket.
 
 Para utilizar Docker para el desarrollo, usar los siguientes scripts:
 
+- Para compilar la aplicación, ejecutar `./compile.sh`
+
 - Para iniciar el interprete `iex` con el proyecto ejecutar `./iex.sh`
 
 - Para actualizar las dependencias ejecutar `./mix-deps-gets.sh`
+
+- Para levantar/detener la aplicación en múltiples contenedores Docker, usar `./libremarket start|stop`
 
 ## Mise
 
