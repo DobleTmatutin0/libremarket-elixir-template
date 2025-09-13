@@ -1,22 +1,5 @@
 services:
-  simulador:
-    image: elixir:alpine
-    container_name: simulador
-    volumes:
-      - ./:/app
-    working_dir: /app
-    network_mode: "host"
-    environment:
-      SERVER_TO_RUN: simulador
-      MIX_HOME: /app/mix_home
-      HEX_HOME: /app/hex_home
-    command: iex --sname simulador --cookie secret -S mix
-    # para habilitar -it
-    stdin_open: true
-    tty: true
-    user: "${DOCKER_UID}:${DOCKER_GID}"
-
-  infracciones:
+  compras:
     image: elixir:alpine
     container_name: compras
     volumes:
@@ -24,10 +7,27 @@ services:
     working_dir: /app
     network_mode: "host"
     environment:
+      SERVER_TO_RUN: Libremarket.Compras.Server
       MIX_HOME: /app/mix_home
       HEX_HOME: /app/hex_home
-      SERVER_TO_RUN: Compras.Server
     command: iex --sname compras --cookie secret -S mix
+    # para habilitar -it
+    stdin_open: true
+    tty: true
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+
+  infracciones:
+    image: elixir:alpine
+    container_name: infracciones
+    volumes:
+      - ./:/app
+    working_dir: /app
+    network_mode: "host"
+    environment:
+      SERVER_TO_RUN: Libremarket.Infracciones.Server
+      MIX_HOME: /app/mix_home
+      HEX_HOME: /app/hex_home
+    command: iex --sname infracciones --cookie secret -S mix
     # para habilitar -it
     stdin_open: true
     tty: true
