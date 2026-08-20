@@ -2,4 +2,6 @@
 # you can mount a local directory into the container.
 # Make sure to specify the user with "-u $(id -u):$(id -g)"
 # so that the created files have proper permissions
-docker run -it --rm -v "$(pwd)":/app -w /app -u $(id -u):$(id -g) -e MIX_HOME=/app/mix_home -e HEX_HOME=/app/hex_home --network host elixir:alpine iex --sname $1 --cookie $2 -S mix
+SNAME="${1:-n1}"
+COOKIE="${2:-secret}"
+docker run -it --rm -v "$(pwd)":/app -w /app -u $(id -u):$(id -g) -e MIX_HOME=/app/mix_home -e HEX_HOME=/app/hex_home --network host elixir:alpine iex --sname $SNAME --cookie $COOKIE -S mix
