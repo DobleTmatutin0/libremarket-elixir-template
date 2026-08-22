@@ -1,7 +1,7 @@
 defmodule Libremarket.Compras do
 
   def comprar() do
-    :show_me_the_money
+    Libremarket.Pagos.Server.autorizar_pagos()
   end
 
 end
