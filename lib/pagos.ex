@@ -48,7 +48,7 @@ defmodule Libremarket.Pagos.Server do
   """
   @impl true
   def handle_call(:autorizar_pagos, _from, state) do
-    result = Libremarket.Pagos.autorizar_pagos
+    result = Libremarket.Pagos.autorizar_pagos()
     {:reply, result, state}
   end
 
