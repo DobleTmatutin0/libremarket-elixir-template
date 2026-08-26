@@ -29,8 +29,8 @@ defmodule Libremarket.Pagos.Server do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def autorizar_pagos(pid \\ __MODULE__) do
-    GenServer.call(pid, :autorizar_pagos)
+  def autorizar_pagos(pid \\ __MODULE__, id_compra) do
+    GenServer.call(pid, {:autorizar_pagos, id_compra})
   end
 
   # Callbacks
@@ -47,9 +47,10 @@ defmodule Libremarket.Pagos.Server do
   Callback para un call :autorizar_pagos
   """
   @impl true
-  def handle_call(:autorizar_pagos, _from, state) do
+  def handle_call({:autorizar_pagos, id_compra}, _from, state) do
     result = Libremarket.Pagos.autorizar_pagos()
-    {:reply, result, state}
+    newState = Map.put(state, id_compra, result)
+    {:reply, result, newState}
   end
 
 end
