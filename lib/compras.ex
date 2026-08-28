@@ -34,27 +34,14 @@ defmodule Libremarket.Compras.Server do
     GenServer.call(pid, {:comprar, id_compra})
   end
 
-  def listar_productos(pid \\ __MODULE__) do
-    GenServer.call(pid, :listar_productos)
-  end
-
   # Callbacks
 
   @doc """
     Inicializa el estado del servidor
   """
   @impl true
-  def init(_state) do
-    {
-      :ok,
-      %{
-        productos: [
-          %{id: 1, nombre: "Notebook"},
-          %{id: 2, nombre: "Mouse"},
-          %{id: 3, nombre: "Keyboard"},
-        ]
-      }
-    }
+  def init(state) do
+    {:ok, state}
   end
 
   @doc """
@@ -71,9 +58,5 @@ defmodule Libremarket.Compras.Server do
     {:reply, result, state}
   end
 
-  @impl true
-  def handle_call(:listar_productos, _from, state) do
-    {:reply, state.productos, state}
-  end
 
 end
