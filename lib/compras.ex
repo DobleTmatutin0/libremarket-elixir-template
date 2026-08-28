@@ -1,7 +1,15 @@
 defmodule Libremarket.Compras do
 
-  def comprar() do
-    Libremarket.Pagos.Server.autorizar_pagos()
+  def comprar(id_compra) do
+    Libremarket.Pagos.Server.autorizar_pagos(id_compra)
+  end
+
+  def selec_forma_entrega(forma) do
+    if forma == :correo do
+      Libremarket.Envios.Server.calcular_costo()
+    else
+      :retiro_en_tienda
+    end
   end
 
 end
@@ -22,8 +30,8 @@ defmodule Libremarket.Compras.Server do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def comprar(pid \\ __MODULE__) do
-    GenServer.call(pid, :comprar)
+  def comprar(id_compra, pid \\ __MODULE__) do
+    GenServer.call(pid, {:comprar, id_compra})
   end
 
   def listar_productos(pid \\ __MODULE__) do
@@ -53,14 +61,16 @@ defmodule Libremarket.Compras.Server do
     Callback para un call :comprar
   """
   @impl true
-  def handle_call(:comprar, _from, state) do
-    result = Libremarket.Compras.comprar
+  def handle_call({:comprar, id_compra}, _from, state) do
+    result = Libremarket.Compras.comprar(id_compra)
     {:reply, result, state}
   end
 
-  @doc """
-    Callback para un call :listar_productos
-  """
+  def handle_call({:selec_forma_entrega, forma}, _from, state) do
+    result = Libremarket.Compras.selec_forma_entrega(forma)
+    {:reply, result, state}
+  end
+
   @impl true
   def handle_call(:listar_productos, _from, state) do
     {:reply, state.productos, state}

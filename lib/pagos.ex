@@ -29,7 +29,7 @@ defmodule Libremarket.Pagos.Server do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def autorizar_pagos(pid \\ __MODULE__, id_compra) do
+  def autorizar_pagos(id_compra, pid \\ __MODULE__) do
     GenServer.call(pid, {:autorizar_pagos, id_compra})
   end
 
