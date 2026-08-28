@@ -12,6 +12,10 @@ defmodule Libremarket.Compras do
     end
   end
 
+  def confirmar_compra() do
+    :compra_confirmada
+  end
+
 end
 
 defmodule Libremarket.Compras.Server do
