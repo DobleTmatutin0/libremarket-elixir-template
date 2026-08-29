@@ -1,22 +1,32 @@
 defmodule Libremarket.Ventas do
 
-  def reservar_productos() do
-    :productos_reservados
+  def reservar_productos(productos) do
+    if productos.stock > 0 do
+      :productos_reservados
+    else
+      :out_of_stock
+    end
+  end
+
+  def liberar_productos(productos) do
+    :productos_liberados
   end
 
 end
 
 defmodule Libremarket.Ventas.Server do
   @moduledoc """
-  Ventas
+    Ventas
   """
 
   use GenServer
 
+  ##########################
   # API del cliente
+  ##########################
 
   @doc """
-  Crea un nuevo servidor de Ventas
+    Crea un nuevo servidor de Ventas
   """
   def start_link(opts \\ %{}) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -26,37 +36,33 @@ defmodule Libremarket.Ventas.Server do
     GenServer.call(pid, :listar_productos)
   end
 
-  def reservar_productos(pid \\ __MODULE__) do
-    GenServer.call(pid, :reservar_productos)
+  def reservar_productos(pid \\ __MODULE__, id_producto) do
+    GenServer.call(pid, :reservar_productos, id_producto)
   end
 
+  def liberar_productos(pid \\ __MODULE__, id_producto) do
+    GenServer.call(pid, :liberar_productos, id_producto)
+  end
 
-  # Callbacks
+  ##########################
+  # CALLBACKS
+  ##########################
 
   @doc """
-  Inicializa el estado del servidor
+    Inicializa el estado del servidor
   """
   @impl true
   def init(_state) do
     {
       :ok,
       %{
-        productos: [
-          %{id: 1, nombre: "Notebook"},
-          %{id: 2, nombre: "Mouse"},
-          %{id: 3, nombre: "Keyboard"},
-        ]
+        productos: %{
+            :1 => %{nombre: "Notebook", stock: 10},
+            :2 => %{nombre: "Mouse", stock: 20},
+            :3 => %{nombre: "Keyboard", stock: 15}
+        }
       }
     }
-  end
-
-  @doc """
-  Callback para un call :reservar_productos
-  """
-  @impl true
-  def handle_call(:reservar_productos, _from, state) do
-    result = Libremarket.Ventas.reservar_productos
-    {:reply, result, state}
   end
 
   @doc """
@@ -65,6 +71,44 @@ defmodule Libremarket.Ventas.Server do
   @impl true
   def handle_call(:listar_productos, _from, state) do
     {:reply, state.productos, state}
+  end
+
+  @doc """
+    Callback para un call :reservar_productos
+  """
+  @impl true
+  def handle_call({:reservar_productos, id_producto}, _from, state) do
+    producto = Map.get(state.productos, id_producto)
+    if producto do
+      # reducir stock y retornar result
+      result = Libremarket.Ventas.reservar_productos(producto)
+      if result = :productos_reservados do
+        producto_actualizado =
+          Map.update(producto, :stock, fn stock -> stock -1 end)
+
+        productos_actualizados =
+          Map.put(state.productos, id_producto, producto_actualizado)
+
+        new_state = %{state | productos: productos_actualizados}
+
+        {:reply, {:ok, result}, new_state}
+        # prodria retornar solo result? porq esta todo este formato de :reply , algo, new_state?
+      else
+        # retorna :out_of_stock
+        result
+      end
+    else
+      :el_producto_no_existe
+    end
+  end
+
+  @doc """
+    Callback para un call :liberar_producto
+  """
+  @impl true
+  def handle_call(:liberar_productos, id_producto) do
+    # aumenta denuevo el stock
+    Libremarket.Ventas.liberar_productos(id_producto)
   end
 
 end
