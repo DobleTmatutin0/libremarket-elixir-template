@@ -12,11 +12,11 @@ defmodule Libremarket.Compras do
   end
 
   def detectar_infraccion(id_compra) do
-    result = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra)
+    result = Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
   end
 
-  def selec_forma_entrega(forma) do
-    if forma == :correo do
+  def selec_forma_entrega(forma_de_envio) do
+    if forma_de_envio == :correo do
       Libremarket.Envios.Server.calcular_costo()
     else
       :retiro_en_tienda
@@ -47,10 +47,16 @@ defmodule Libremarket.Compras.Server do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def comprar(pid \\ __MODULE__) do
-    GenServer.call(pid, {:comprar, id_compra})
+  @doc """
+    representa todo el proceso de la compra, seleccionar el producto, tipo de envio, etc
+  """
+  def comprar(pid \\ __MODULE__, id_producto, forma_de_envio) do
+    GenServer.call(pid, {:comprar, id_producto, forma_de_envio})
   end
 
+  @doc """
+    boton de confirmacion para autorizar el pago
+  """
   def confirmar_compra(pid \\ __MODULE__, id_compra) do
     GenServer.call(pid, {:confirmar_compra, id_compra})
   end
@@ -76,11 +82,12 @@ defmodule Libremarket.Compras.Server do
     {:reply, result, state}
   end
 
-  def handle_call({:comprar, id_producto, forma}, _from, state) do
+  def handle_call({:comprar, id_producto, forma_de_envio}, _from, state) do
     new_id_compra = :rand.uniform(1000)
-    result = Libremarket.Compras.select_producto(id_producto)
-    result1 = Libremarket.Compras.selec_forma_entrega(forma)
+    result = Libremarket.Compras.selec_producto(id_producto)
+    result1 = Libremarket.Compras.selec_forma_entrega(forma_de_envio)
     result2 = Libremarket.Compras.detectar_infraccion(new_id_compra)
+
     compra = %{
       id_compra: new_id_compra
       producto: id_producto
@@ -88,8 +95,9 @@ defmodule Libremarket.Compras.Server do
       forma_de_entrega: result1
       infraccion: result2
     }
-    new_state = Map.#???
-    {:reply, compra, state}
+
+    new_state = Map.put(state, new_id_compra, compra)
+    {:reply, compra, new_state}
   end
 
 
