@@ -37,11 +37,11 @@ defmodule Libremarket.Ventas.Server do
   end
 
   def reservar_productos(pid \\ __MODULE__, id_producto) do
-    GenServer.call(pid, :reservar_productos, id_producto)
+    GenServer.call(pid, {:reservar_productos, id_producto})
   end
 
   def liberar_productos(pid \\ __MODULE__, id_producto) do
-    GenServer.call(pid, :liberar_productos, id_producto)
+    GenServer.call(pid, {:liberar_productos, id_producto})
   end
 
   ##########################
@@ -57,9 +57,9 @@ defmodule Libremarket.Ventas.Server do
       :ok,
       %{
         productos: %{
-            :1 => %{nombre: "Notebook", stock: 10},
-            :2 => %{nombre: "Mouse", stock: 20},
-            :3 => %{nombre: "Keyboard", stock: 15}
+          1 => %{nombre: "Notebook", stock: 10},
+          2 => %{nombre: "Mouse", stock: 20},
+          3 => %{nombre: "Keyboard", stock: 15}
         }
       }
     }
@@ -79,12 +79,13 @@ defmodule Libremarket.Ventas.Server do
   @impl true
   def handle_call({:reservar_productos, id_producto}, _from, state) do
     producto = Map.get(state.productos, id_producto)
+
     if producto do
-      # reducir stock y retornar result
       result = Libremarket.Ventas.reservar_productos(producto)
-      if result = :productos_reservados do
+
+      if result == :productos_reservados do
         producto_actualizado =
-          Map.update(producto, :stock, fn stock -> stock -1 end)
+          Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
 
         productos_actualizados =
           Map.put(state.productos, id_producto, producto_actualizado)
@@ -92,13 +93,11 @@ defmodule Libremarket.Ventas.Server do
         new_state = %{state | productos: productos_actualizados}
 
         {:reply, {:ok, result}, new_state}
-        # prodria retornar solo result? porq esta todo este formato de :reply , algo, new_state?
       else
-        # retorna :out_of_stock
-        result
+        {:reply, {:error, result}, state}
       end
     else
-      :el_producto_no_existe
+      {:reply, {:error, :el_producto_no_existe}, state}
     end
   end
 
@@ -106,9 +105,18 @@ defmodule Libremarket.Ventas.Server do
     Callback para un call :liberar_producto
   """
   @impl true
-  def handle_call(:liberar_productos, id_producto) do
-    # aumenta denuevo el stock
-    Libremarket.Ventas.liberar_productos(id_producto)
+  def handle_call({:liberar_productos, id_producto}, _from, state) do
+    producto = Map.get(state.productos, id_producto)
+
+    if producto do
+      producto_actualizado = Map.update(producto, :stock, 0, fn stock -> stock + 1 end)
+      productos_actualizados = Map.put(state.productos, id_producto, producto_actualizado)
+      new_state = %{state | productos: productos_actualizados}
+
+      {:reply, {:ok, :productos_liberados}, new_state}
+    else
+      {:reply, {:error, :el_producto_no_existe}, state}
+    end
   end
 
 end

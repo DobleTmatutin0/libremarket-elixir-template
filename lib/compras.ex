@@ -89,10 +89,10 @@ defmodule Libremarket.Compras.Server do
     result2 = Libremarket.Compras.detectar_infraccion(new_id_compra)
 
     compra = %{
-      id_compra: new_id_compra
-      producto: id_producto
-      estado_del_producto: result
-      forma_de_entrega: result1
+      id_compra: new_id_compra,
+      producto: id_producto,
+      estado_del_producto: result,
+      forma_de_entrega: result1,
       infraccion: result2
     }
 
