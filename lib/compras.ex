@@ -4,15 +4,12 @@ defmodule Libremarket.Compras do
     Libremarket.Pagos.Server.autorizar_pagos(id_compra)
   end
 
-  #cambiar nombre de result
   def selec_producto(id_producto) do
-    # new_id_compra = :rand.uniform(1000)
-    result = Libremarket.Ventas.Server.reservar_productos(id_producto)
-    # result2 = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra)
+    Libremarket.Ventas.Server.reservar_productos(id_producto)
   end
 
   def detectar_infraccion(id_compra) do
-    result = Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
+    Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
   end
 
   def selec_forma_entrega(forma_de_envio) do
@@ -69,8 +66,14 @@ defmodule Libremarket.Compras.Server do
     Inicializa el estado del servidor
   """
   @impl true
-  def init(state) do
-    {:ok, state}
+  def init(_state) do
+    {
+        :ok,
+        %{
+            proximo_id_compra: 0,
+            compras: %{}
+        }
+    }
   end
 
   @doc """
@@ -83,7 +86,7 @@ defmodule Libremarket.Compras.Server do
   end
 
   def handle_call({:comprar, id_producto, forma_de_envio}, _from, state) do
-    new_id_compra = :rand.uniform(1000)
+    new_id_compra = Map.get(state, :proximo_id_compra)
     result = Libremarket.Compras.selec_producto(id_producto)
     result1 = Libremarket.Compras.selec_forma_entrega(forma_de_envio)
     result2 = Libremarket.Compras.detectar_infraccion(new_id_compra)
@@ -96,7 +99,9 @@ defmodule Libremarket.Compras.Server do
       infraccion: result2
     }
 
-    new_state = Map.put(state, new_id_compra, compra)
+    new_state_compras = Map.put(state.compras, new_id_compra, compra)
+
+    new_state = %{state | proximo_id_compra: new_id_compra + 1, compras: new_state_compras}
     {:reply, compra, new_state}
   end
 
