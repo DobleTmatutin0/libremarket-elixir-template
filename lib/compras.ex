@@ -4,7 +4,6 @@ defmodule Libremarket.Compras do
     Libremarket.Pagos.Server.autorizar_pagos(id_compra)
   end
 
-  #cambiar nombre de result
   def selec_producto(id_producto) do
     # new_id_compra = :rand.uniform(1000)
     Libremarket.Ventas.Server.reservar_productos(id_producto)
@@ -12,6 +11,7 @@ defmodule Libremarket.Compras do
   end
 
   def detectar_infraccion(id_compra) do
+    Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
     Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
   end
 
@@ -66,8 +66,14 @@ defmodule Libremarket.Compras.Server do
     Inicializa el estado del servidor
   """
   @impl true
-  def init(state) do
-    {:ok, state}
+  def init(_state) do
+    {
+        :ok,
+        %{
+            proximo_id_compra: 0,
+            compras: %{}
+        }
+    }
   end
 
   @doc """
