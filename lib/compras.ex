@@ -7,12 +7,12 @@ defmodule Libremarket.Compras do
   #cambiar nombre de result
   def selec_producto(id_producto) do
     # new_id_compra = :rand.uniform(1000)
-    result = Libremarket.Ventas.Server.reservar_productos(id_producto)
+    Libremarket.Ventas.Server.reservar_productos(id_producto)
     # result2 = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra)
   end
 
   def detectar_infraccion(id_compra) do
-    result = Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
+    Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
   end
 
   def selec_forma_entrega(forma_de_envio) do
@@ -23,9 +23,6 @@ defmodule Libremarket.Compras do
     end
   end
 
-  def confirmar_compra() do
-    :compra_confirmada
-  end
 
 end
 
@@ -84,20 +81,35 @@ defmodule Libremarket.Compras.Server do
 
   def handle_call({:comprar, id_producto, forma_de_envio}, _from, state) do
     new_id_compra = :rand.uniform(1000)
-    result = Libremarket.Compras.selec_producto(id_producto)
-    result1 = Libremarket.Compras.selec_forma_entrega(forma_de_envio)
-    result2 = Libremarket.Compras.detectar_infraccion(new_id_compra)
+    reserva = Libremarket.Compras.selec_producto(id_producto)
+    infraccion = Libremarket.Compras.detectar_infraccion(new_id_compra)
+    forma = Libremarket.Compras.selec_forma_entrega(forma_de_envio)
 
-    compra = %{
-      id_compra: new_id_compra,
-      producto: id_producto,
-      estado_del_producto: result,
-      forma_de_entrega: result1,
-      infraccion: result2
-    }
+    if reserva == :out_of_stock do
+      {:reply, :out_of_stock, state}
+    else
+      if infraccion == :infraccion_detectada do
+        {:reply, :infraccion_detectada, state}
+      else
+        compra = %{
+          id_compra: new_id_compra,
+          producto: id_producto,
+          estado_del_producto: reserva,
+          forma_de_entrega: forma,
+          infraccion: infraccion
+        }
 
-    new_state = Map.put(state, new_id_compra, compra)
-    {:reply, compra, new_state}
+        new_state = Map.put(state, new_id_compra, compra)
+
+        pago = Libremarket.Compras.confirmar_compra(new_id_compra)
+
+        if pago == :pago_aprobado do
+          {:reply, compra, new_state}
+        else
+          {:reply, :compra_rechazada, new_state}
+        end
+      end
+    end
   end
 
 
