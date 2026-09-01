@@ -10,9 +10,8 @@ defmodule Libremarket.Compras do
     # result2 = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra)
   end
 
-  def detectar_infraccion(id_compra) do
-    Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
-    Libremarket.Infracciones.Server.detectar_infraccion(id_compra)
+  def detectar_infraccion(id_compra, productos \\ []) do
+    Libremarket.Infracciones.Server.detectar_infraccion(id_compra, productos)
   end
 
   def selec_forma_entrega(forma_de_envio) do
@@ -47,8 +46,8 @@ defmodule Libremarket.Compras.Server do
   @doc """
     representa todo el proceso de la compra, seleccionar el producto, tipo de envio, etc
   """
-  def comprar(pid \\ __MODULE__, id_producto, forma_de_envio) do
-    GenServer.call(pid, {:comprar, id_producto, forma_de_envio})
+  def comprar(pid \\ __MODULE__, productos, forma_de_envio, medio_de_pago) do
+    GenServer.call(pid, {:comprar, productos, forma_de_envio, medio_de_pago})
   end
 
   @doc """
@@ -85,13 +84,13 @@ defmodule Libremarket.Compras.Server do
     {:reply, result, state}
   end
 
-  def handle_call({:comprar, id_producto, forma_de_envio}, _from, state) do
+  def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
     new_id_compra = :rand.uniform(1000)
-    reserva = Libremarket.Compras.selec_producto(id_producto)
-    infraccion = Libremarket.Compras.detectar_infraccion(new_id_compra)
-    forma = Libremarket.Compras.selec_forma_entrega(forma_de_envio)
+    reserva = Libremarket.Ventas.Server.reservar_productos(productos)
+    infraccion = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra, productos)
+    forma = Libremarket.Compras.selec_forma_entrega(forma_entrega)
 
-    if reserva == :out_of_stock do
+    if reserva == {:error, :el_producto_no_existe} or reserva == {:error, :out_of_stock} do
       {:reply, :out_of_stock, state}
     else
       if infraccion == :infraccion_detectada do
@@ -99,20 +98,26 @@ defmodule Libremarket.Compras.Server do
       else
         compra = %{
           id_compra: new_id_compra,
-          producto: id_producto,
+          productos: productos,
           estado_del_producto: reserva,
           forma_de_entrega: forma,
+          medio_de_pago: medio_de_pago,
           infraccion: infraccion
         }
 
-        new_state = Map.put(state, new_id_compra, compra)
+        new_state = Map.put(state.compras, new_id_compra, compra)
+        nueva_estructura = %{state | compras: new_state}
 
         pago = Libremarket.Compras.confirmar_compra(new_id_compra)
 
         if pago == :pago_aprobado do
-          {:reply, compra, new_state}
+          if forma_entrega == :correo do
+            Libremarket.Envios.Server.agendar_envio(new_id_compra)
+          end
+          {:reply, compra, nueva_estructura}
         else
-          {:reply, :compra_rechazada, new_state}
+          Libremarket.Ventas.Server.liberar_productos(productos)
+          {:reply, :compra_rechazada, nueva_estructura}
         end
       end
     end
