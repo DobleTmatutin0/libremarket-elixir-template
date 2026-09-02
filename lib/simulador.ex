@@ -1,7 +1,7 @@
 defmodule Simulador do
 
   def simular_compra() do
-    productos = Enum.take_random([1, 2, 3], Enum.random(1..3))
+    productos = Enum.take_random(1..10 |> Enum.to_list(), Enum.random(1..3))
     envio = if :rand.uniform(100) <= 70, do: :correo, else: :retira
     pago = Enum.random([:efectivo, :transferencia, :tarjeta])
 

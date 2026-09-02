@@ -82,16 +82,20 @@ defmodule Libremarket.Ventas.Server do
   """
   @impl true
   def init(_state) do
-    {
-      :ok,
-      %{
-        productos: %{
-          1 => %{nombre: "Notebook", stock: 10},
-          2 => %{nombre: "Mouse", stock: 20},
-          3 => %{nombre: "Keyboard", stock: 15}
-        }
-      }
+    productos = %{
+      1 => %{nombre: "Notebook", stock: :rand.uniform(10)},
+      2 => %{nombre: "Mouse", stock: :rand.uniform(10)},
+      3 => %{nombre: "Keyboard", stock: :rand.uniform(10)},
+      4 => %{nombre: "Monitor", stock: :rand.uniform(10)},
+      5 => %{nombre: "Auriculares", stock: :rand.uniform(10)},
+      6 => %{nombre: "Webcam", stock: :rand.uniform(10)},
+      7 => %{nombre: "Parlante", stock: :rand.uniform(10)},
+      8 => %{nombre: "Microfono", stock: :rand.uniform(10)},
+      9 => %{nombre: "Tablet", stock: :rand.uniform(10)},
+      10 => %{nombre: "Impresora", stock: :rand.uniform(10)}
     }
+
+    {:ok, %{productos: productos}}
   end
 
   @doc """
