@@ -8,6 +8,14 @@ defmodule Simulador do
     Libremarket.Ui.comprar(productos, envio, pago)
   end
 
+  def simular_compra(id_producto) do
+    productos = [id_producto]
+    envio = if :rand.uniform(100) <= 70, do: :correo, else: :retira
+    pago = Enum.random([:efectivo, :transferencia, :tarjeta])
+
+    Libremarket.Ui.comprar(productos, envio, pago)
+  end
+
   def simular_compras_secuencial(cantidad \\ 1) do
     for _n <- 1 .. cantidad do
       simular_compra()
