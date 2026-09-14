@@ -32,6 +32,32 @@ defmodule Libremarket.Compras.Server do
 
   use GenServer
 
+  use AMQP
+
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @compras_queue "compras"
+  @infracciones_queue "infracciones"
+  @ventas_queue "ventas"
+  @envios_queue "envios"
+  @pagos_queue "pagos"
+
+
+  def iniciar_cola_de_mensajes() do
+    # Obtiene el canal de mensaje desde config.exs
+    {:ok, channel} = AMQP.Application.get_channel(:channel)
+
+    # Declara la cola de mensajes
+    Queue.declare(channel, @compras_queue, durable: true)
+
+    # Configura el consumidor
+    Basic.consume(channel, @compras_queue, nil, no_ack: true)
+
+    {:ok, channel}
+  end
+
   ##########################
   # API del cliente
   ##########################
@@ -66,12 +92,11 @@ defmodule Libremarket.Compras.Server do
   """
   @impl true
   def init(_state) do
+    iniciar_cola_de_mensajes();
+
     {
-        :ok,
-        %{
-            proximo_id_compra: 0,
-            compras: %{}
-        }
+      :ok,
+      %{ proximo_id_compra: 0, compras: %{} }
     }
   end
 
