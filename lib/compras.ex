@@ -32,8 +32,6 @@ defmodule Libremarket.Compras.Server do
 
   use GenServer
 
-  use AMQP
-
   ########################################################
   # Constantes con los nombres de las colas de mensajes
   ########################################################
@@ -43,33 +41,6 @@ defmodule Libremarket.Compras.Server do
   @ventas_queue "ventas"
   @envios_queue "envios"
   @pagos_queue "pagos"
-
-
-  def iniciar_cola_de_mensajes() do
-    # Obtiene el canal de mensaje desde config.exs
-    {:ok, channel} = AMQP.Application.get_channel(:channel)
-
-    # Declara la cola de mensajes
-    Queue.declare(channel, @compras_queue, durable: true)
-
-    # Configura el consumidor
-    Basic.consume(channel, @compras_queue, nil, no_ack: true)
-
-    {:ok, channel}
-  end
-
-  def send_message(queue_name, message) do
-    # Obtener el canal AMQP (definido en la configuración)
-    {:ok, channel} = AMQP.Application.get_channel(:channel)
-
-    # Declara la cola de mensajes. Si no existe, se crea.
-    Queue.declare(channel, queue_name, durable: true)
-
-    # Publicar el mensaje
-    Basic.publish(channel, "", queue_name, message)
-
-    IO.puts("Mensaje enviado: #{message}")
-  end
 
   ##########################
   # API del cliente
@@ -105,7 +76,7 @@ defmodule Libremarket.Compras.Server do
   """
   @impl true
   def init(_state) do
-    iniciar_cola_de_mensajes();
+    Libremarket.Message.iniciar_cola_de_mensajes(@compras_queue);
 
     {
       :ok,
@@ -125,7 +96,7 @@ defmodule Libremarket.Compras.Server do
   def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
     new_id_compra = :rand.uniform(1000)
 
-    send_message(@ventas_queue, productos)
+    Libremarket.Message.send_message(@ventas_queue, productos)
 
     # reserva = Libremarket.Ventas.Server.reservar_productos(productos)
     infraccion = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra, productos)
