@@ -17,6 +17,10 @@ defmodule Libremarket.Ventas do
     end
   end
 
+  def procesar_reserva() do
+
+  end
+
   def liberar_productos(productos) when is_list(productos) do
     Enum.each(productos, fn id_producto ->
       Libremarket.Ventas.Server.liberar_productos(id_producto)
@@ -138,31 +142,6 @@ defmodule Libremarket.Ventas.Server do
     case resultado do
       :ok -> {:reply, {:ok, :productos_reservados}, nuevo_estado}
       {:error, reason} -> {:reply, {:error, reason}, nuevo_estado}
-    end
-  end
-
-  @impl true
-  def handle_call({:reservar_productos, id_producto}, _from, state) do
-    producto = Map.get(state.productos, id_producto)
-
-    if producto do
-      result = Libremarket.Ventas.reservar_productos(producto)
-
-      if result == :productos_reservados do
-        producto_actualizado =
-          Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
-
-        productos_actualizados =
-          Map.put(state.productos, id_producto, producto_actualizado)
-
-        new_state = %{state | productos: productos_actualizados}
-
-        {:reply, {:ok, result}, new_state}
-      else
-        {:reply, {:error, result}, state}
-      end
-    else
-      {:reply, {:error, :el_producto_no_existe}, state}
     end
   end
 
