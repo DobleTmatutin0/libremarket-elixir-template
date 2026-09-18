@@ -58,6 +58,19 @@ defmodule Libremarket.Compras.Server do
     {:ok, channel}
   end
 
+  def send_message(queue_name, message) do
+    # Obtener el canal AMQP (definido en la configuración)
+    {:ok, channel} = AMQP.Application.get_channel(:channel)
+
+    # Declara la cola de mensajes. Si no existe, se crea.
+    Queue.declare(channel, queue_name, durable: true)
+
+    # Publicar el mensaje
+    Basic.publish(channel, "", queue_name, message)
+
+    IO.puts("Mensaje enviado: #{message}")
+  end
+
   ##########################
   # API del cliente
   ##########################
@@ -111,7 +124,10 @@ defmodule Libremarket.Compras.Server do
 
   def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
     new_id_compra = :rand.uniform(1000)
-    reserva = Libremarket.Ventas.Server.reservar_productos(productos)
+
+    send_message(@ventas_queue, productos)
+
+    # reserva = Libremarket.Ventas.Server.reservar_productos(productos)
     infraccion = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra, productos)
     forma = Libremarket.Compras.selec_forma_entrega(forma_entrega)
 
