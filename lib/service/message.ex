@@ -2,11 +2,11 @@ defmodule Libremarket.Message do
 
   use AMQP
 
-  def iniciar_cola_de_mensajes(queue_name) do
-    # Obtiene el canal de mensaje desde config.exs
+  def create_consumer(queue_name) do
+    # Obtiene el canal AMQP (definico en el archivo de configuracion)
     {:ok, channel} = AMQP.Application.get_channel(:channel)
 
-    # Declara la cola de mensajes
+    # Declara la cola de mensajes. Si no existe, se crea.
     Queue.declare(channel, queue_name, durable: true)
 
     # Configura el consumidor
@@ -28,6 +28,5 @@ defmodule Libremarket.Message do
 
     IO.puts("Mensaje enviado: #{inspect(message)}")
   end
-
 
 end
