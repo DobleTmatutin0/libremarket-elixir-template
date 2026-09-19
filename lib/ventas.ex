@@ -17,8 +17,31 @@ defmodule Libremarket.Ventas do
     end
   end
 
-  def procesar_reserva() do
+  def procesar_reserva(productos, state) when is_list(productos) do
+    Enum.reduce(productos, {:ok, state}, fn
+        _id_producto, {{:error, _} = error, estado_acumulado} ->
+            {error, estado_acumulado}
+        id_producto, {:ok, estado_acumulado} ->
+            producto = Map.get(estado_acumulado.productos, id_producto)
 
+            if producto do
+                result = Libremarket.Ventas.reservar_productos(producto)
+
+                if result == :productos_reservados do
+                    producto_actualizado =
+                        Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
+
+                    producotos_actualizados = Map.update(estado_acumulado.productos, id_producto, producto_actualizado)
+
+                    {:ok, %{estado_acumulado | productos: producotos_actualizados}}
+                else
+                    {{:error, result}, estado_acumulado}
+                end
+            else
+                {{:error, :el_producto_no_existe}, estado_acumulado}
+            end
+
+    end)
   end
 
   def liberar_productos(productos) when is_list(productos) do
@@ -112,37 +135,9 @@ defmodule Libremarket.Ventas.Server do
 
   @impl true
   def handle_call({:reservar_productos, productos}, _from, state) when is_list(productos) do
-    {resultado, nuevo_estado} =
-      Enum.reduce(productos, {:ok, state}, fn
-        _id_producto, {{:error, _} = error, acc_state} ->
-          {error, acc_state}
+    {resultado, nuevo_estado} = Libremarket.Ventas.procesar_reserva(productos, state)
 
-        id_producto, {:ok, acc_state} ->
-          producto = Map.get(acc_state.productos, id_producto)
-
-          if producto do
-            result = Libremarket.Ventas.reservar_productos(producto)
-
-            if result == :productos_reservados do
-              producto_actualizado =
-                Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
-
-              productos_actualizados =
-                Map.put(acc_state.productos, id_producto, producto_actualizado)
-
-              {:ok, %{acc_state | productos: productos_actualizados}}
-            else
-              {{:error, result}, acc_state}
-            end
-          else
-            {{:error, :el_producto_no_existe}, acc_state}
-          end
-      end)
-
-    case resultado do
-      :ok -> {:reply, {:ok, :productos_reservados}, nuevo_estado}
-      {:error, reason} -> {:reply, {:error, reason}, nuevo_estado}
-    end
+    {:reply, resultado, nuevo_estado}
   end
 
   @impl true
