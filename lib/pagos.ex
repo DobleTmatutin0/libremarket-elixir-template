@@ -20,7 +20,17 @@ defmodule Libremarket.Pagos.Server do
 
   use GenServer
 
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @pagos_queue "pagos"
+  @compras_queue "compras"
+  @ventas_queue "ventas"
+
+  ########################################################
   # API del cliente
+  ########################################################
 
   @doc """
   Crea un nuevo servidor de Pagos
@@ -40,6 +50,8 @@ defmodule Libremarket.Pagos.Server do
   """
   @impl true
   def init(state) do
+    Libremarket.Message.create_consumer(@pagos_queue)
+
     {:ok, state}
   end
 

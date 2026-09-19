@@ -65,6 +65,18 @@ defmodule Libremarket.Ventas.Server do
 
   use GenServer
 
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @ventas_queue "ventas"
+
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @ventas_queue "ventas"
+
   ##########################
   # API del cliente
   ##########################
@@ -109,6 +121,8 @@ defmodule Libremarket.Ventas.Server do
   """
   @impl true
   def init(_state) do
+    Libremarket.Message.create_consumer(@ventas_queue)
+
     productos = %{
       1 => %{nombre: "Notebook", stock: :rand.uniform(10)},
       2 => %{nombre: "Mouse", stock: :rand.uniform(10)},

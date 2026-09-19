@@ -76,7 +76,7 @@ defmodule Libremarket.Compras.Server do
   """
   @impl true
   def init(_state) do
-    Libremarket.Message.iniciar_cola_de_mensajes(@compras_queue);
+    Libremarket.Message.create_consumer(@compras_queue);
 
     {
       :ok,
