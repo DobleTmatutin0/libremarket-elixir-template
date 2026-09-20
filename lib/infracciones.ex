@@ -54,7 +54,7 @@ defmodule Libremarket.Infracciones.Server do
     result = Libremarket.Infracciones.detectar_infraccion()
 
     if result == :infraccion_detectada and productos != [] do
-      Libremarket.Ventas.Server.liberar_productos(productos)
+      Libremarket.Message.rpc(@ventas_queue, {:liberar_productos, productos})
     end
 
     new_state = Map.put(state, id_compra, result)

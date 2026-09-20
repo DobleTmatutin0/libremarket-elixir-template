@@ -29,5 +29,19 @@ defmodule Libremarket.Message do
     IO.puts("Mensaje enviado: #{inspect(message)}")
   end
 
+  def rpc(queue_name, payload) do
+    {:ok, channel} = AMQP.Application.get_channel(:channel)
+    corr = :erlang.unique_integer() |> to_string()
+    {:ok, %{queue: reply_q}} = Queue.declare(channel, "", exclusive: true)
+    Basic.consume(channel, reply_q, nil, no_ack: true)
+    Queue.declare(channel, queue_name, durable: true)
+    Basic.publish(channel, "", queue_name, :erlang.term_to_binary({payload, corr}),
+      reply_to: reply_q, correlation_id: corr, persistent: true)
+    receive do
+      {:basic_deliver, resp, %{correlation_id: ^corr}} -> :erlang.binary_to_term(resp)
+    after 5000 -> {:error, :timeout}
+    end
+  end
+
 
 end

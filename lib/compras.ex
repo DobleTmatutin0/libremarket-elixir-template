@@ -96,10 +96,10 @@ defmodule Libremarket.Compras.Server do
   def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
     new_id_compra = :rand.uniform(1000)
 
-    Libremarket.Message.send_message(@ventas_queue, productos)
+    reserva = Libremarket.Message.rpc(@ventas_queue, {:reservar_productos, productos})
+    infraccion = Libremarket.Message.rpc(@infracciones_queue, {:detectar_infraccion, new_id_compra, productos})
 
     # reserva = Libremarket.Ventas.Server.reservar_productos(productos)
-    infraccion = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra, productos)
     forma = Libremarket.Compras.selec_forma_entrega(forma_entrega)
 
     if reserva == {:error, :el_producto_no_existe} or reserva == {:error, :out_of_stock} do
@@ -124,11 +124,11 @@ defmodule Libremarket.Compras.Server do
 
         if pago == :pago_aprobado do
           if forma_entrega == :correo do
-            Libremarket.Envios.Server.agendar_envio(new_id_compra)
+            Libremarket.Message.rpc(@envios_queue, {:agendar_envio, new_id_compra})
           end
           {:reply, compra, nueva_estructura}
         else
-          Libremarket.Ventas.Server.liberar_productos(productos)
+          Libremarket.Message.rpc(@ventas_queue, {:liberar_productos, productos})
           {:reply, :compra_rechazada, nueva_estructura}
         end
       end
