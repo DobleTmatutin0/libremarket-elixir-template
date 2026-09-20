@@ -19,7 +19,17 @@ defmodule Libremarket.Infracciones.Server do
 
   use GenServer
 
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @infracciones_queue "infracciones"
+  @compras_queue "compras"
+  @ventas_queue "ventas"
+
+  ########################################################
   # API del cliente
+  ########################################################
 
   @doc """
   Crea un nuevo servidor de Infracciones
@@ -43,6 +53,8 @@ defmodule Libremarket.Infracciones.Server do
   """
   @impl true
   def init(state) do
+    Libremarket.Message.create_consumer(@infracciones_queue)
+
     {:ok, state}
   end
 

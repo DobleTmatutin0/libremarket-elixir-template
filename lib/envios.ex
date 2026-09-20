@@ -17,7 +17,17 @@ defmodule Libremarket.Envios.Server do
 
   use GenServer
 
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @envios_queue "envios"
+  @compras_queue "compras"
+  @ventas_queue "ventas"
+
+  ########################################################
   # API del cliente
+  ########################################################
 
   @doc """
   Crea un nuevo servidor de Envios
@@ -45,6 +55,8 @@ defmodule Libremarket.Envios.Server do
   """
   @impl true
   def init(_opts) do
+    Libremarket.Message.create_consumer(@envios_queue)
+
     {:ok, %{envios: %{}}}
   end
 
