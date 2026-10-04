@@ -22,8 +22,6 @@ defmodule Libremarket.Envios.Server do
   ########################################################
 
   @envios_queue "envios"
-  @compras_queue "compras"
-  @ventas_queue "ventas"
 
   ########################################################
   # API del cliente
@@ -80,6 +78,24 @@ defmodule Libremarket.Envios.Server do
   @impl true
   def handle_call(:listar_envios, _from, state) do
     {:reply, state.envios, state}
+  end
+
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case :erlang.binary_to_term(payload) do
+      {:agendar_envio, id_compra} ->
+        fecha_envio = Libremarket.Envios.agendar_envio()
+        envios_nuevos = Map.put(state.envios, id_compra, fecha_envio)
+        {:noreply, %{state | envios: envios_nuevos}}
+
+      _mensaje ->
+        {:noreply, state}
+    end
   end
 
 end

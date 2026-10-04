@@ -66,7 +66,7 @@ defmodule Libremarket.Infracciones.Server do
     result = Libremarket.Infracciones.detectar_infraccion()
 
     if result == :infraccion_detectada and productos != [] do
-      Libremarket.Message.rpc(@ventas_queue, {:liberar_productos, productos})
+      Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, productos})
     end
 
     new_state = Map.put(state, id_compra, result)
@@ -76,6 +76,30 @@ defmodule Libremarket.Infracciones.Server do
   @impl true
   def handle_call(:listar_infracciones, _from, state) do
     {:reply, state, state}
+  end
+
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case :erlang.binary_to_term(payload) do
+      {:detectar_infraccion, id_compra, productos} ->
+        result = Libremarket.Infracciones.detectar_infraccion()
+
+        if result == :infraccion_detectada and productos != [] do
+          Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, productos})
+        end
+
+        new_state = Map.put(state, id_compra, result)
+        Libremarket.Message.send_message(@compras_queue, {:infraccion_resultado, id_compra, result})
+        {:noreply, new_state}
+
+      _mensaje ->
+        {:noreply, state}
+    end
   end
 
 

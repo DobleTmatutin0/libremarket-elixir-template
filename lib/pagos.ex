@@ -26,7 +26,6 @@ defmodule Libremarket.Pagos.Server do
 
   @pagos_queue "pagos"
   @compras_queue "compras"
-  @ventas_queue "ventas"
 
   ########################################################
   # API del cliente
@@ -63,6 +62,30 @@ defmodule Libremarket.Pagos.Server do
     result = Libremarket.Pagos.autorizar_pagos()
     newState = Map.put(state, id_compra, result)
     {:reply, result, newState}
+  end
+
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case :erlang.binary_to_term(payload) do
+      {:autorizar_pagos, id_compra, request_id} ->
+        result = Libremarket.Pagos.autorizar_pagos()
+        new_state = Map.put(state, id_compra, result)
+
+        Libremarket.Message.send_message(
+          @compras_queue,
+          {:pago_resultado, id_compra, request_id, result}
+        )
+
+        {:noreply, new_state}
+
+      _mensaje ->
+        {:noreply, state}
+    end
   end
 
 end

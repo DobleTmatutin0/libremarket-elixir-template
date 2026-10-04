@@ -18,30 +18,26 @@ defmodule Libremarket.Ventas do
   end
 
   def procesar_reserva(productos, state) when is_list(productos) do
-    Enum.reduce(productos, {:ok, state}, fn
-        _id_producto, {{:error, _} = error, estado_acumulado} ->
-            {error, estado_acumulado}
-        id_producto, {:ok, estado_acumulado} ->
-            producto = Map.get(estado_acumulado.productos, id_producto)
+    resultado =
+      Enum.reduce_while(productos, {:ok, state}, fn id_producto, {:ok, estado_acumulado} ->
+        case Map.get(estado_acumulado.productos, id_producto) do
+          %{stock: stock} = producto when stock > 0 ->
+            producto_actualizado = Map.put(producto, :stock, stock - 1)
+            productos_actualizados = Map.put(estado_acumulado.productos, id_producto, producto_actualizado)
+            {:cont, {:ok, %{estado_acumulado | productos: productos_actualizados}}}
 
-            if producto do
-                result = Libremarket.Ventas.reservar_productos(producto)
+          nil ->
+            {:halt, {{:error, :el_producto_no_existe}, state}}
 
-                if result == :productos_reservados do
-                    producto_actualizado =
-                        Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
+          _producto ->
+            {:halt, {{:error, :out_of_stock}, state}}
+        end
+      end)
 
-                    producotos_actualizados = Map.update(estado_acumulado.productos, id_producto, producto_actualizado)
-
-                    {:ok, %{estado_acumulado | productos: producotos_actualizados}}
-                else
-                    {{:error, result}, estado_acumulado}
-                end
-            else
-                {{:error, :el_producto_no_existe}, estado_acumulado}
-            end
-
-    end)
+    case resultado do
+      {:ok, nuevo_estado} -> {{:ok, :productos_reservados}, nuevo_estado}
+      {{:error, _motivo} = error, _estado_parcial} -> {error, state}
+    end
   end
 
   def liberar_productos(productos) when is_list(productos) do
@@ -156,19 +152,7 @@ defmodule Libremarket.Ventas.Server do
 
   @impl true
   def handle_call({:liberar_productos, productos}, _from, state) when is_list(productos) do
-    nuevo_estado =
-      Enum.reduce(productos, state, fn id_producto, acc_state ->
-        producto = Map.get(acc_state.productos, id_producto)
-
-        if producto do
-          producto_actualizado = Map.update(producto, :stock, 0, fn stock -> stock + 1 end)
-          productos_actualizados = Map.put(acc_state.productos, id_producto, producto_actualizado)
-          %{acc_state | productos: productos_actualizados}
-        else
-          acc_state
-        end
-      end)
-
+    nuevo_estado = incrementar_stock(productos, state)
     {:reply, {:ok, :productos_liberados}, nuevo_estado}
   end
 
@@ -185,6 +169,41 @@ defmodule Libremarket.Ventas.Server do
     else
       {:reply, {:error, :el_producto_no_existe}, state}
     end
+  end
+
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case :erlang.binary_to_term(payload) do
+      {:reservar_productos, id_compra, productos} ->
+        {resultado, nuevo_estado} = Libremarket.Ventas.procesar_reserva(productos, state)
+        Libremarket.Message.send_message("compras", {:reserva_resultado, id_compra, resultado})
+        {:noreply, nuevo_estado}
+
+      {:liberar_productos, productos} ->
+        {:noreply, incrementar_stock(productos, state)}
+
+      _mensaje ->
+        {:noreply, state}
+    end
+  end
+
+  defp incrementar_stock(productos, state) do
+    Enum.reduce(List.wrap(productos), state, fn id_producto, acc_state ->
+      case Map.get(acc_state.productos, id_producto) do
+        nil ->
+          acc_state
+
+        producto ->
+          producto_actualizado = Map.update!(producto, :stock, &(&1 + 1))
+          productos_actualizados = Map.put(acc_state.productos, id_producto, producto_actualizado)
+          %{acc_state | productos: productos_actualizados}
+      end
+    end)
   end
 
 end

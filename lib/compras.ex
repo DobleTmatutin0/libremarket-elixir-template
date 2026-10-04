@@ -1,22 +1,20 @@
 defmodule Libremarket.Compras do
 
   def confirmar_compra(id_compra) do
-    Libremarket.Pagos.Server.autorizar_pagos(id_compra)
+    Libremarket.Compras.Server.confirmar_compra(id_compra)
   end
 
   def selec_producto(id_producto) do
-    # new_id_compra = :rand.uniform(1000)
-    Libremarket.Ventas.Server.reservar_productos(id_producto)
-    # result2 = Libremarket.Infracciones.Server.detectar_infraccion(new_id_compra)
+    Libremarket.Message.send_message("ventas", {:reservar_productos, nil, [id_producto]})
   end
 
   def detectar_infraccion(id_compra, productos \\ []) do
-    Libremarket.Infracciones.Server.detectar_infraccion(id_compra, productos)
+    Libremarket.Message.send_message("infracciones", {:detectar_infraccion, id_compra, productos})
   end
 
   def selec_forma_entrega(forma_de_envio) do
     if forma_de_envio == :correo do
-      Libremarket.Envios.Server.calcular_costo()
+      Libremarket.Envios.calcular_costo()
     else
       :retiro_en_tienda
     end
@@ -57,14 +55,14 @@ defmodule Libremarket.Compras.Server do
     representa todo el proceso de la compra, seleccionar el producto, tipo de envio, etc
   """
   def comprar(pid \\ __MODULE__, productos, forma_de_envio, medio_de_pago) do
-    GenServer.call(pid, {:comprar, productos, forma_de_envio, medio_de_pago})
+    GenServer.call(pid, {:comprar, productos, forma_de_envio, medio_de_pago}, :infinity)
   end
 
   @doc """
     boton de confirmacion para autorizar el pago
   """
   def confirmar_compra(pid \\ __MODULE__, id_compra) do
-    GenServer.call(pid, {:confirmar_compra, id_compra})
+    GenServer.call(pid, {:confirmar_compra, id_compra}, :infinity)
   end
 
   ##########################
@@ -80,60 +78,161 @@ defmodule Libremarket.Compras.Server do
 
     {
       :ok,
-      %{ proximo_id_compra: 0, compras: %{} }
+      %{proximo_id_compra: 0, compras: %{}, pendientes: %{}, confirmaciones: %{}}
     }
   end
 
   @doc """
-    Callback para un call :comprar
+  Solicita la autorización de pago mediante la cola de Pagos.
   """
   @impl true
-  def handle_call({:confirmar_compra, id_compra}, _from, state) do
-    result = Libremarket.Compras.confirmar_compra(id_compra)
-    {:reply, result, state}
+  def handle_call({:confirmar_compra, id_compra}, from, state) do
+    request_id = :erlang.unique_integer([:positive, :monotonic])
+    Libremarket.Message.send_message(@pagos_queue, {:autorizar_pagos, id_compra, {:confirmacion, request_id}})
+    confirmaciones = Map.put(state.confirmaciones, request_id, from)
+    {:noreply, %{state | confirmaciones: confirmaciones}}
   end
 
-  def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
-    new_id_compra = :rand.uniform(1000)
-
-    reserva = Libremarket.Message.rpc(@ventas_queue, {:reservar_productos, productos})
-    infraccion = Libremarket.Message.rpc(@infracciones_queue, {:detectar_infraccion, new_id_compra, productos})
-
-    # reserva = Libremarket.Ventas.Server.reservar_productos(productos)
+  @impl true
+  def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, from, state) do
+    id_compra = state.proximo_id_compra + 1
     forma = Libremarket.Compras.selec_forma_entrega(forma_entrega)
+    pendiente = %{
+      from: from,
+      productos: productos,
+      forma_entrega: forma,
+      forma_original: forma_entrega,
+      medio_de_pago: medio_de_pago
+    }
 
-    if reserva == {:error, :el_producto_no_existe} or reserva == {:error, :out_of_stock} do
-      {:reply, :out_of_stock, state}
-    else
-      if infraccion == :infraccion_detectada do
-        {:reply, :infraccion_detectada, state}
-      else
-        compra = %{
-          id_compra: new_id_compra,
-          productos: productos,
-          estado_del_producto: reserva,
-          forma_de_entrega: forma,
-          medio_de_pago: medio_de_pago,
-          infraccion: infraccion
-        }
+    Libremarket.Message.send_message(@ventas_queue, {:reservar_productos, id_compra, productos})
 
-        new_state = Map.put(state.compras, new_id_compra, compra)
-        nueva_estructura = %{state | compras: new_state}
+    nuevo_estado = %{state |
+      proximo_id_compra: id_compra,
+      pendientes: Map.put(state.pendientes, id_compra, pendiente)
+    }
 
-        pago = Libremarket.Compras.confirmar_compra(new_id_compra)
+    {:noreply, nuevo_estado}
+  end
 
-        if pago == :pago_aprobado do
-          if forma_entrega == :correo do
-            Libremarket.Message.rpc(@envios_queue, {:agendar_envio, new_id_compra})
-          end
-          {:reply, compra, nueva_estructura}
-        else
-          Libremarket.Message.rpc(@ventas_queue, {:liberar_productos, productos})
-          {:reply, :compra_rechazada, nueva_estructura}
-        end
-      end
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case :erlang.binary_to_term(payload) do
+      {:reserva_resultado, id_compra, resultado} ->
+        procesar_resultado_reserva(id_compra, resultado, state)
+
+      {:infraccion_resultado, id_compra, resultado} ->
+        procesar_resultado_infraccion(id_compra, resultado, state)
+
+      {:pago_resultado, id_compra, request_id, resultado} ->
+        procesar_resultado_pago(id_compra, request_id, resultado, state)
+
+      _mensaje ->
+        {:noreply, state}
     end
   end
 
+  defp procesar_resultado_reserva(id_compra, {:ok, :productos_reservados}, state) do
+    case Map.fetch(state.pendientes, id_compra) do
+      {:ok, pendiente} ->
+        Libremarket.Message.send_message(
+          @infracciones_queue,
+          {:detectar_infraccion, id_compra, pendiente.productos}
+        )
+
+        pendiente = Map.put(pendiente, :estado_del_producto, {:ok, :productos_reservados})
+        pendientes = Map.put(state.pendientes, id_compra, pendiente)
+        {:noreply, %{state | pendientes: pendientes}}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  defp procesar_resultado_reserva(id_compra, _resultado, state) do
+    case Map.pop(state.pendientes, id_compra) do
+      {nil, _pendientes} ->
+        {:noreply, state}
+
+      {pendiente, pendientes} ->
+        GenServer.reply(pendiente.from, :out_of_stock)
+        {:noreply, %{state | pendientes: pendientes}}
+    end
+  end
+
+  defp procesar_resultado_infraccion(id_compra, resultado, state) do
+    case Map.fetch(state.pendientes, id_compra) do
+      {:ok, pendiente} when resultado == :infraccion_detectada ->
+        GenServer.reply(pendiente.from, :infraccion_detectada)
+        {:noreply, %{state | pendientes: Map.delete(state.pendientes, id_compra)}}
+
+      {:ok, pendiente} ->
+        compra = %{
+          id_compra: id_compra,
+          productos: pendiente.productos,
+          estado_del_producto: pendiente.estado_del_producto,
+          forma_de_entrega: pendiente.forma_entrega,
+          medio_de_pago: pendiente.medio_de_pago,
+          infraccion: resultado
+        }
+
+        pendiente = Map.put(pendiente, :compra, compra)
+        pendientes = Map.put(state.pendientes, id_compra, pendiente)
+
+        Libremarket.Message.send_message(
+          @pagos_queue,
+          {:autorizar_pagos, id_compra, {:compra, id_compra}}
+        )
+
+        {:noreply, %{state | pendientes: pendientes}}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  defp procesar_resultado_pago(id_compra, {:compra, id_compra}, resultado, state) do
+    case Map.pop(state.pendientes, id_compra) do
+      {nil, _pendientes} ->
+        {:noreply, state}
+
+      {pendiente, pendientes} ->
+        compra = pendiente.compra
+        compras = Map.put(state.compras, id_compra, compra)
+
+        if resultado == :pago_aprobado do
+          if pendiente.forma_original == :correo do
+            Libremarket.Message.send_message(@envios_queue, {:agendar_envio, id_compra})
+          end
+
+          GenServer.reply(pendiente.from, compra)
+        else
+          Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, pendiente.productos})
+          GenServer.reply(pendiente.from, :compra_rechazada)
+        end
+
+        {:noreply, %{state | compras: compras, pendientes: pendientes}}
+    end
+  end
+
+  defp procesar_resultado_pago(_id_compra, {:confirmacion, request_id}, resultado, state) do
+    case Map.pop(state.confirmaciones, request_id) do
+      {nil, _confirmaciones} ->
+        {:noreply, state}
+
+      {from, confirmaciones} ->
+        GenServer.reply(from, resultado)
+        {:noreply, %{state | confirmaciones: confirmaciones}}
+    end
+  end
+
+  defp procesar_resultado_pago(_id_compra, _request_id, _resultado, state) do
+    {:noreply, state}
+  end
 
 end
