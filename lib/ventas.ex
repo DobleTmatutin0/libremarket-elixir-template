@@ -132,7 +132,7 @@ defmodule Libremarket.Ventas.Server do
       10 => %{nombre: "Impresora", stock: :rand.uniform(10)}
     }
 
-    {:ok, %{productos: productos}}
+    {:ok, %{productos: productos, reloj: Libremarket.Message.initial_clock()}}
   end
 
   @doc """
@@ -178,16 +178,27 @@ defmodule Libremarket.Ventas.Server do
 
   @impl true
   def handle_info({:basic_deliver, payload, _meta}, state) do
-    case :erlang.binary_to_term(payload) do
-      {:reservar_productos, id_compra, productos} ->
+    case Libremarket.Message.receive_message(payload, :ventas, state.reloj) do
+      {:ok, {:reservar_productos, id_compra, productos}, reloj} ->
+        state = %{state | reloj: reloj}
         {resultado, nuevo_estado} = Libremarket.Ventas.procesar_reserva(productos, state)
-        Libremarket.Message.send_message("compras", {:reserva_resultado, id_compra, resultado})
+        reloj = Libremarket.Message.send_message(
+          "compras",
+          {:reserva_resultado, id_compra, resultado},
+          :ventas,
+          nuevo_estado.reloj
+        )
+        nuevo_estado = %{nuevo_estado | reloj: reloj}
         {:noreply, nuevo_estado}
 
-      {:liberar_productos, productos} ->
+      {:ok, {:liberar_productos, productos}, reloj} ->
+        state = %{state | reloj: reloj}
         {:noreply, incrementar_stock(productos, state)}
 
-      _mensaje ->
+      {:ok, _mensaje, reloj} ->
+        {:noreply, %{state | reloj: reloj}}
+
+      {:error, :invalid_message} ->
         {:noreply, state}
     end
   end

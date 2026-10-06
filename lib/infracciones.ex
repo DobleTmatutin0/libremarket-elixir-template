@@ -55,7 +55,7 @@ defmodule Libremarket.Infracciones.Server do
   def init(state) do
     Libremarket.Message.create_consumer(@infracciones_queue)
 
-    {:ok, state}
+    {:ok, Map.put(state, :reloj, Libremarket.Message.initial_clock())}
   end
 
   @doc """
@@ -65,8 +65,10 @@ defmodule Libremarket.Infracciones.Server do
   def handle_call({:detectar_infraccion, id_compra, productos}, _from, state) do
     result = Libremarket.Infracciones.detectar_infraccion()
 
-    if result == :infraccion_detectada and productos != [] do
-      Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, productos})
+    state = if result == :infraccion_detectada and productos != [] do
+      publicar(state, @ventas_queue, {:liberar_productos, productos})
+    else
+      state
     end
 
     new_state = Map.put(state, id_compra, result)
@@ -85,21 +87,32 @@ defmodule Libremarket.Infracciones.Server do
 
   @impl true
   def handle_info({:basic_deliver, payload, _meta}, state) do
-    case :erlang.binary_to_term(payload) do
-      {:detectar_infraccion, id_compra, productos} ->
+    case Libremarket.Message.receive_message(payload, :infracciones, state.reloj) do
+      {:ok, {:detectar_infraccion, id_compra, productos}, reloj} ->
+        state = %{state | reloj: reloj}
         result = Libremarket.Infracciones.detectar_infraccion()
 
-        if result == :infraccion_detectada and productos != [] do
-          Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, productos})
+        state = if result == :infraccion_detectada and productos != [] do
+          publicar(state, @ventas_queue, {:liberar_productos, productos})
+        else
+          state
         end
 
         new_state = Map.put(state, id_compra, result)
-        Libremarket.Message.send_message(@compras_queue, {:infraccion_resultado, id_compra, result})
+        new_state = publicar(new_state, @compras_queue, {:infraccion_resultado, id_compra, result})
         {:noreply, new_state}
 
-      _mensaje ->
+      {:ok, _mensaje, reloj} ->
+        {:noreply, %{state | reloj: reloj}}
+
+      {:error, :invalid_message} ->
         {:noreply, state}
     end
+  end
+
+  defp publicar(state, queue, message) do
+    reloj = Libremarket.Message.send_message(queue, message, :infracciones, state.reloj)
+    %{state | reloj: reloj}
   end
 
 

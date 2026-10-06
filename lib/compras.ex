@@ -5,11 +5,14 @@ defmodule Libremarket.Compras do
   end
 
   def selec_producto(id_producto) do
-    Libremarket.Message.send_message("ventas", {:reservar_productos, nil, [id_producto]})
+    GenServer.cast(Libremarket.Compras.Server, {:publicar, "ventas", {:reservar_productos, nil, [id_producto]}})
   end
 
   def detectar_infraccion(id_compra, productos \\ []) do
-    Libremarket.Message.send_message("infracciones", {:detectar_infraccion, id_compra, productos})
+    GenServer.cast(
+      Libremarket.Compras.Server,
+      {:publicar, "infracciones", {:detectar_infraccion, id_compra, productos}}
+    )
   end
 
   def selec_forma_entrega(forma_de_envio) do
@@ -78,7 +81,7 @@ defmodule Libremarket.Compras.Server do
 
     {
       :ok,
-      %{proximo_id_compra: 0, compras: %{}, pendientes: %{}, confirmaciones: %{}}
+      %{proximo_id_compra: 0, compras: %{}, pendientes: %{}, confirmaciones: %{}, reloj: Libremarket.Message.initial_clock()}
     }
   end
 
@@ -88,9 +91,14 @@ defmodule Libremarket.Compras.Server do
   @impl true
   def handle_call({:confirmar_compra, id_compra}, from, state) do
     request_id = :erlang.unique_integer([:positive, :monotonic])
-    Libremarket.Message.send_message(@pagos_queue, {:autorizar_pagos, id_compra, {:confirmacion, request_id}})
+    reloj = Libremarket.Message.send_message(
+      @pagos_queue,
+      {:autorizar_pagos, id_compra, {:confirmacion, request_id}},
+      :compras,
+      state.reloj
+    )
     confirmaciones = Map.put(state.confirmaciones, request_id, from)
-    {:noreply, %{state | confirmaciones: confirmaciones}}
+    {:noreply, %{state | confirmaciones: confirmaciones, reloj: reloj}}
   end
 
   @impl true
@@ -105,14 +113,25 @@ defmodule Libremarket.Compras.Server do
       medio_de_pago: medio_de_pago
     }
 
-    Libremarket.Message.send_message(@ventas_queue, {:reservar_productos, id_compra, productos})
+    reloj = Libremarket.Message.send_message(
+      @ventas_queue,
+      {:reservar_productos, id_compra, productos},
+      :compras,
+      state.reloj
+    )
 
     nuevo_estado = %{state |
       proximo_id_compra: id_compra,
-      pendientes: Map.put(state.pendientes, id_compra, pendiente)
+      pendientes: Map.put(state.pendientes, id_compra, pendiente),
+      reloj: reloj
     }
 
     {:noreply, nuevo_estado}
+  end
+
+  @impl true
+  def handle_cast({:publicar, queue, message}, state) do
+    {:noreply, publicar(state, queue, message)}
   end
 
   @impl true
@@ -122,17 +141,25 @@ defmodule Libremarket.Compras.Server do
 
   @impl true
   def handle_info({:basic_deliver, payload, _meta}, state) do
-    case :erlang.binary_to_term(payload) do
-      {:reserva_resultado, id_compra, resultado} ->
-        procesar_resultado_reserva(id_compra, resultado, state)
+    case Libremarket.Message.receive_message(payload, :compras, state.reloj) do
+      {:ok, mensaje, reloj} ->
+        state = %{state | reloj: reloj}
 
-      {:infraccion_resultado, id_compra, resultado} ->
-        procesar_resultado_infraccion(id_compra, resultado, state)
+        case mensaje do
+          {:reserva_resultado, id_compra, resultado} ->
+            procesar_resultado_reserva(id_compra, resultado, state)
 
-      {:pago_resultado, id_compra, request_id, resultado} ->
-        procesar_resultado_pago(id_compra, request_id, resultado, state)
+          {:infraccion_resultado, id_compra, resultado} ->
+            procesar_resultado_infraccion(id_compra, resultado, state)
 
-      _mensaje ->
+          {:pago_resultado, id_compra, request_id, resultado} ->
+            procesar_resultado_pago(id_compra, request_id, resultado, state)
+
+          _mensaje ->
+            {:noreply, state}
+        end
+
+      {:error, :invalid_message} ->
         {:noreply, state}
     end
   end
@@ -140,7 +167,8 @@ defmodule Libremarket.Compras.Server do
   defp procesar_resultado_reserva(id_compra, {:ok, :productos_reservados}, state) do
     case Map.fetch(state.pendientes, id_compra) do
       {:ok, pendiente} ->
-        Libremarket.Message.send_message(
+        state = publicar(
+          state,
           @infracciones_queue,
           {:detectar_infraccion, id_compra, pendiente.productos}
         )
@@ -184,7 +212,8 @@ defmodule Libremarket.Compras.Server do
         pendiente = Map.put(pendiente, :compra, compra)
         pendientes = Map.put(state.pendientes, id_compra, pendiente)
 
-        Libremarket.Message.send_message(
+        state = publicar(
+          state,
           @pagos_queue,
           {:autorizar_pagos, id_compra, {:compra, id_compra}}
         )
@@ -205,15 +234,19 @@ defmodule Libremarket.Compras.Server do
         compra = pendiente.compra
         compras = Map.put(state.compras, id_compra, compra)
 
-        if resultado == :pago_aprobado do
-          if pendiente.forma_original == :correo do
-            Libremarket.Message.send_message(@envios_queue, {:agendar_envio, id_compra})
+        state = if resultado == :pago_aprobado do
+          state = if pendiente.forma_original == :correo do
+            publicar(state, @envios_queue, {:agendar_envio, id_compra})
+          else
+            state
           end
 
           GenServer.reply(pendiente.from, compra)
+          state
         else
-          Libremarket.Message.send_message(@ventas_queue, {:liberar_productos, pendiente.productos})
+          state = publicar(state, @ventas_queue, {:liberar_productos, pendiente.productos})
           GenServer.reply(pendiente.from, :compra_rechazada)
+          state
         end
 
         {:noreply, %{state | compras: compras, pendientes: pendientes}}
@@ -233,6 +266,11 @@ defmodule Libremarket.Compras.Server do
 
   defp procesar_resultado_pago(_id_compra, _request_id, _resultado, state) do
     {:noreply, state}
+  end
+
+  defp publicar(state, queue, message) do
+    reloj = Libremarket.Message.send_message(queue, message, :compras, state.reloj)
+    %{state | reloj: reloj}
   end
 
 end

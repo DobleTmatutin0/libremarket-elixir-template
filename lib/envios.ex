@@ -55,7 +55,7 @@ defmodule Libremarket.Envios.Server do
   def init(_opts) do
     Libremarket.Message.create_consumer(@envios_queue)
 
-    {:ok, %{envios: %{}}}
+    {:ok, %{envios: %{}, reloj: Libremarket.Message.initial_clock()}}
   end
 
   @doc """
@@ -87,13 +87,16 @@ defmodule Libremarket.Envios.Server do
 
   @impl true
   def handle_info({:basic_deliver, payload, _meta}, state) do
-    case :erlang.binary_to_term(payload) do
-      {:agendar_envio, id_compra} ->
+    case Libremarket.Message.receive_message(payload, :envios, state.reloj) do
+      {:ok, {:agendar_envio, id_compra}, reloj} ->
         fecha_envio = Libremarket.Envios.agendar_envio()
         envios_nuevos = Map.put(state.envios, id_compra, fecha_envio)
-        {:noreply, %{state | envios: envios_nuevos}}
+        {:noreply, %{state | envios: envios_nuevos, reloj: reloj}}
 
-      _mensaje ->
+      {:ok, _mensaje, reloj} ->
+        {:noreply, %{state | reloj: reloj}}
+
+      {:error, :invalid_message} ->
         {:noreply, state}
     end
   end
