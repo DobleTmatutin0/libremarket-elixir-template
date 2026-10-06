@@ -17,7 +17,15 @@ defmodule Libremarket.Envios.Server do
 
   use GenServer
 
+  ########################################################
+  # Constantes con los nombres de las colas de mensajes
+  ########################################################
+
+  @envios_queue "envios"
+
+  ########################################################
   # API del cliente
+  ########################################################
 
   @doc """
   Crea un nuevo servidor de Envios
@@ -45,7 +53,9 @@ defmodule Libremarket.Envios.Server do
   """
   @impl true
   def init(_opts) do
-    {:ok, %{envios: %{}}}
+    Libremarket.Message.create_consumer(@envios_queue)
+
+    {:ok, %{envios: %{}, reloj: Libremarket.Message.initial_clock()}}
   end
 
   @doc """
@@ -68,6 +78,27 @@ defmodule Libremarket.Envios.Server do
   @impl true
   def handle_call(:listar_envios, _from, state) do
     {:reply, state.envios, state}
+  end
+
+  @impl true
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:basic_deliver, payload, _meta}, state) do
+    case Libremarket.Message.receive_message(payload, :envios, state.reloj) do
+      {:ok, {:agendar_envio, id_compra}, reloj} ->
+        fecha_envio = Libremarket.Envios.agendar_envio()
+        envios_nuevos = Map.put(state.envios, id_compra, fecha_envio)
+        {:noreply, %{state | envios: envios_nuevos, reloj: reloj}}
+
+      {:ok, _mensaje, reloj} ->
+        {:noreply, %{state | reloj: reloj}}
+
+      {:error, :invalid_message} ->
+        {:noreply, state}
+    end
   end
 
 end

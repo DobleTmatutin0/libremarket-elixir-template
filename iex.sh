@@ -2,6 +2,12 @@
 # you can mount a local directory into the container.
 # Make sure to specify the user with "-u $(id -u):$(id -g)"
 # so that the created files have proper permissions
+if [[ -f .env ]]; then
+	set -a
+	source .env
+	set +a
+fi
+
 SNAME="${1:-n1}"
 COOKIE="${2:-secret}"
-docker run -it --rm -v "$(pwd)":/app -w /app -u $(id -u):$(id -g) -e MIX_HOME=/app/mix_home -e HEX_HOME=/app/hex_home elixir:otp-27-alpine iex --sname $SNAME --cookie $COOKIE -S mix
+docker run -it --rm -v "$(pwd)":/app -w /app -u $(id -u):$(id -g) -e MIX_HOME=/app/mix_home -e HEX_HOME=/app/hex_home -e CLOUDAMQP_URL elixir:otp-27-alpine iex --sname $SNAME --cookie $COOKIE -S mix
