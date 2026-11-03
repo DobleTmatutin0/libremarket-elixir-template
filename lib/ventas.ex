@@ -1,27 +1,22 @@
 defmodule Libremarket.Ventas do
 
+  # Verifica si un producto tiene stock disponible.
+  def reservar_productos(%{stock: stock}) when stock > 0 do
+    :productos_reservados
+  end
+
+  def reservar_productos(%{stock: _stock}) do
+    :out_of_stock
+  end
+
+  # Reserva una lista de productos.
   def reservar_productos(productos) when is_list(productos) do
-    Enum.reduce_while(productos, {:ok, []}, fn id_producto, {:ok, acc} ->
-      case Libremarket.Ventas.Server.reservar_productos(id_producto) do
-        {:ok, :productos_reservados} -> {:cont, {:ok, acc ++ [id_producto]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
+    Libremarket.Ventas.Server.reservar_productos(productos)
   end
 
-  def reservar_productos(productos) do
-    if productos.stock > 0 do
-      :productos_reservados
-    else
-      :out_of_stock
-    end
-  end
-
+  # Libera una lista de productos.
   def liberar_productos(productos) when is_list(productos) do
-    Enum.each(productos, fn id_producto ->
-      Libremarket.Ventas.Server.liberar_productos(id_producto)
-    end)
-
+    Libremarket.Ventas.Server.liberar_productos(productos)
     :productos_liberados
   end
 
@@ -30,6 +25,7 @@ defmodule Libremarket.Ventas do
   end
 
 end
+
 
 defmodule Libremarket.Ventas.Server do
   @moduledoc """
@@ -42,9 +38,6 @@ defmodule Libremarket.Ventas.Server do
   # API del cliente
   ##########################
 
-  @doc """
-    Crea un nuevo servidor de Ventas
-  """
   def start_link(opts \\ %{}) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -73,13 +66,11 @@ defmodule Libremarket.Ventas.Server do
     GenServer.call(pid, {:liberar_productos, [id_producto]})
   end
 
+
   ##########################
   # CALLBACKS
   ##########################
 
-  @doc """
-    Inicializa el estado del servidor
-  """
   @impl true
   def init(_state) do
     productos = %{
@@ -98,105 +89,82 @@ defmodule Libremarket.Ventas.Server do
     {:ok, %{productos: productos}}
   end
 
-  @doc """
-    Callback para un call :listar_productos
-  """
+
   @impl true
   def handle_call(:listar_productos, _from, state) do
     {:reply, state.productos, state}
   end
 
+
+  # Reserva todos los productos o no reserva ninguno.
   @impl true
-  def handle_call({:reservar_productos, productos}, _from, state) when is_list(productos) do
-    {resultado, nuevo_estado} =
-      Enum.reduce(productos, {:ok, state}, fn
-        _id_producto, {{:error, _} = error, acc_state} ->
-          {error, acc_state}
+  def handle_call({:reservar_productos, productos}, _from, state) do
 
-        id_producto, {:ok, acc_state} ->
-          producto = Map.get(acc_state.productos, id_producto)
+    resultado =
+      Enum.reduce_while(productos, {:ok, state.productos}, fn id_producto, {:ok, productos_actuales} ->
 
-          if producto do
-            result = Libremarket.Ventas.reservar_productos(producto)
+        case Map.get(productos_actuales, id_producto) do
 
-            if result == :productos_reservados do
-              producto_actualizado =
-                Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
+          nil ->
+            {:halt, {:error, :el_producto_no_existe}}
 
-              productos_actualizados =
-                Map.put(acc_state.productos, id_producto, producto_actualizado)
+          producto ->
+            case Libremarket.Ventas.reservar_productos(producto) do
 
-              {:ok, %{acc_state | productos: productos_actualizados}}
-            else
-              {{:error, result}, acc_state}
+              :productos_reservados ->
+                producto_actualizado =
+                  Map.update!(producto, :stock, fn stock -> stock - 1 end)
+
+                nuevos_productos =
+                  Map.put(productos_actuales, id_producto, producto_actualizado)
+
+                {:cont, {:ok, nuevos_productos}}
+
+              :out_of_stock ->
+                {:halt, {:error, :out_of_stock}}
+
             end
-          else
-            {{:error, :el_producto_no_existe}, acc_state}
-          end
-      end)
-
-    case resultado do
-      :ok -> {:reply, {:ok, :productos_reservados}, nuevo_estado}
-      {:error, reason} -> {:reply, {:error, reason}, nuevo_estado}
-    end
-  end
-
-  @impl true
-  def handle_call({:reservar_productos, id_producto}, _from, state) do
-    producto = Map.get(state.productos, id_producto)
-
-    if producto do
-      result = Libremarket.Ventas.reservar_productos(producto)
-
-      if result == :productos_reservados do
-        producto_actualizado =
-          Map.update(producto, :stock, 0, fn stock -> stock - 1 end)
-
-        productos_actualizados =
-          Map.put(state.productos, id_producto, producto_actualizado)
-
-        new_state = %{state | productos: productos_actualizados}
-
-        {:reply, {:ok, result}, new_state}
-      else
-        {:reply, {:error, result}, state}
-      end
-    else
-      {:reply, {:error, :el_producto_no_existe}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:liberar_productos, productos}, _from, state) when is_list(productos) do
-    nuevo_estado =
-      Enum.reduce(productos, state, fn id_producto, acc_state ->
-        producto = Map.get(acc_state.productos, id_producto)
-
-        if producto do
-          producto_actualizado = Map.update(producto, :stock, 0, fn stock -> stock + 1 end)
-          productos_actualizados = Map.put(acc_state.productos, id_producto, producto_actualizado)
-          %{acc_state | productos: productos_actualizados}
-        else
-          acc_state
         end
       end)
 
-    {:reply, {:ok, :productos_liberados}, nuevo_estado}
+    case resultado do
+
+      {:ok, productos_actualizados} ->
+        nuevo_estado = %{state | productos: productos_actualizados}
+
+        {:reply, {:ok, :productos_reservados}, nuevo_estado}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+
+    end
   end
 
+
+  # Libera el stock de todos los productos indicados.
   @impl true
-  def handle_call({:liberar_productos, id_producto}, _from, state) do
-    producto = Map.get(state.productos, id_producto)
+  def handle_call({:liberar_productos, productos}, _from, state) do
 
-    if producto do
-      producto_actualizado = Map.update(producto, :stock, 0, fn stock -> stock + 1 end)
-      productos_actualizados = Map.put(state.productos, id_producto, producto_actualizado)
-      new_state = %{state | productos: productos_actualizados}
+    productos_actualizados =
+      Enum.reduce(productos, state.productos, fn id_producto, acc_productos ->
 
-      {:reply, {:ok, :productos_liberados}, new_state}
-    else
-      {:reply, {:error, :el_producto_no_existe}, state}
-    end
+        case Map.get(acc_productos, id_producto) do
+
+          nil ->
+            acc_productos
+
+          producto ->
+            producto_actualizado =
+              Map.update!(producto, :stock, fn stock -> stock + 1 end)
+
+            Map.put(acc_productos, id_producto, producto_actualizado)
+
+        end
+      end)
+
+    nuevo_estado = %{state | productos: productos_actualizados}
+
+    {:reply, {:ok, :productos_liberados}, nuevo_estado}
   end
 
 end
