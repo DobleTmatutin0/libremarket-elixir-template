@@ -20,45 +20,66 @@ defmodule Libremarket.Compras do
       :retiro_en_tienda
     end
   end
+
 end
 
 
 defmodule Libremarket.Compras.Server do
   use GenServer
 
-  def start_link(opts \\ %{}), do:
+  def start_link(opts \\ %{}) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
 
-  def comprar(pid \\ __MODULE__, productos, forma_de_envio, medio_de_pago), do:
+  def comprar(pid \\ __MODULE__, productos, forma_de_envio, medio_de_pago) do
     GenServer.call(pid, {:comprar, productos, forma_de_envio, medio_de_pago})
+  end
 
-  def confirmar_compra(pid \\ __MODULE__, id_compra), do:
+  def confirmar_compra(pid \\ __MODULE__, id_compra) do
     GenServer.call(pid, {:confirmar_compra, id_compra})
-
-
-  def init(_state) do
-    {:ok, %{proximo_id_compra: 0, compras: %{}}}
   end
 
 
+  ##########################
+  # CALLBACKS
+  ##########################
+
+  @impl true
+  def init(_state) do
+    {:ok, %{}}
+  end
+
+
+  @impl true
   def handle_call({:confirmar_compra, id_compra}, _from, state) do
     result = Libremarket.Compras.confirmar_compra(id_compra)
     {:reply, result, state}
   end
 
 
-  def handle_call({:comprar, productos, forma_entrega, medio_de_pago}, _from, state) do
+  @impl true
+  def handle_call(
+        {:comprar, productos, forma_entrega, medio_de_pago},
+        _from,
+        state
+      ) do
 
-    new_id_compra = state.proximo_id_compra + 1
+    # Obtiene un ID directamente de la secuencia de PostgreSQL.
+    [[id_compra]] =
+      Libremarket.Repo.query!(
+        "SELECT nextval('compras_id_compra_seq')"
+      ).rows
 
-    reserva = Libremarket.Ventas.Server.reservar_productos(productos)
+    reserva =
+      Libremarket.Ventas.Server.reservar_productos(productos)
 
     compra =
       case reserva do
 
         {:error, _motivo} ->
+
           %{
-            id_compra: new_id_compra,
+            id_compra: id_compra,
             productos: productos,
             estado_del_producto: reserva,
             forma_de_entrega: nil,
@@ -69,18 +90,20 @@ defmodule Libremarket.Compras.Server do
           }
 
         {:ok, _} ->
-          forma = Libremarket.Compras.selec_forma_entrega(forma_entrega)
+
+          forma =
+            Libremarket.Compras.selec_forma_entrega(forma_entrega)
 
           infraccion =
             Libremarket.Infracciones.Server.detectar_infraccion(
-              new_id_compra,
+              id_compra,
               productos
             )
 
           if infraccion == :infraccion_detectada do
 
             %{
-              id_compra: new_id_compra,
+              id_compra: id_compra,
               productos: productos,
               estado_del_producto: reserva,
               forma_de_entrega: forma,
@@ -92,16 +115,17 @@ defmodule Libremarket.Compras.Server do
 
           else
 
-            pago = Libremarket.Compras.confirmar_compra(new_id_compra)
+            pago =
+              Libremarket.Compras.confirmar_compra(id_compra)
 
             if pago == :pago_aprobado do
 
               if forma_entrega == :correo do
-                Libremarket.Envios.Server.agendar_envio(new_id_compra)
+                Libremarket.Envios.Server.agendar_envio(id_compra)
               end
 
               %{
-                id_compra: new_id_compra,
+                id_compra: id_compra,
                 productos: productos,
                 estado_del_producto: reserva,
                 forma_de_entrega: forma,
@@ -116,7 +140,7 @@ defmodule Libremarket.Compras.Server do
               Libremarket.Ventas.Server.liberar_productos(productos)
 
               %{
-                id_compra: new_id_compra,
+                id_compra: id_compra,
                 productos: productos,
                 estado_del_producto: reserva,
                 forma_de_entrega: forma,
@@ -130,14 +154,63 @@ defmodule Libremarket.Compras.Server do
           end
       end
 
-    nuevas_compras = Map.put(state.compras, new_id_compra, compra)
+    # Guarda el intento de compra en PostgreSQL.
+    guardar_compra(compra)
 
-    nuevo_estado = %{
-      state |
-      proximo_id_compra: new_id_compra,
-      compras: nuevas_compras
-    }
-
-    {:reply, compra, nuevo_estado}
+    {:reply, compra, state}
   end
+
+
+  ##########################
+  # FUNCIONES INTERNAS
+  ##########################
+
+  defp guardar_compra(compra) do
+
+    productos =
+      Enum.join(compra.productos, ",")
+
+    Libremarket.Repo.query!(
+      """
+      INSERT INTO compras (
+        id_compra,
+        productos,
+        estado_del_producto,
+        forma_de_entrega,
+        medio_de_pago,
+        infraccion,
+        estado_del_pago,
+        estado_final_compra
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      """,
+      [
+        compra.id_compra,
+        productos,
+        serializar(compra.estado_del_producto),
+        serializar(compra.forma_de_entrega),
+        serializar(compra.medio_de_pago),
+        serializar(compra.infraccion),
+        serializar(compra.estado_del_pago),
+        serializar(compra.estado_final_compra)
+      ]
+    )
+
+  end
+
+
+  defp serializar(nil), do: nil
+
+  defp serializar({:ok, valor}), do: serializar(valor)
+
+  defp serializar({:error, motivo}), do: serializar(motivo)
+
+  defp serializar(valor) when is_atom(valor), do: Atom.to_string(valor)
+
+  defp serializar(valor) when is_binary(valor), do: valor
+
+  defp serializar(valor) when is_number(valor), do: to_string(valor)
+
+  defp serializar(valor), do: inspect(valor)
+
 end

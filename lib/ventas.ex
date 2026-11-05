@@ -1,3 +1,4 @@
+
 defmodule Libremarket.Ventas do
 
   # Verifica si un producto tiene stock disponible.
@@ -29,7 +30,7 @@ end
 
 defmodule Libremarket.Ventas.Server do
   @moduledoc """
-    Ventas
+  Gestiona el catálogo y el stock de productos mediante PostgreSQL.
   """
 
   use GenServer
@@ -73,98 +74,158 @@ defmodule Libremarket.Ventas.Server do
 
   @impl true
   def init(_state) do
-    productos = %{
-      1 => %{nombre: "Notebook", stock: :rand.uniform(10)},
-      2 => %{nombre: "Mouse", stock: :rand.uniform(10)},
-      3 => %{nombre: "Keyboard", stock: :rand.uniform(10)},
-      4 => %{nombre: "Monitor", stock: :rand.uniform(10)},
-      5 => %{nombre: "Auriculares", stock: :rand.uniform(10)},
-      6 => %{nombre: "Webcam", stock: :rand.uniform(10)},
-      7 => %{nombre: "Parlante", stock: :rand.uniform(10)},
-      8 => %{nombre: "Microfono", stock: :rand.uniform(10)},
-      9 => %{nombre: "Tablet", stock: :rand.uniform(10)},
-      10 => %{nombre: "Impresora", stock: :rand.uniform(10)}
-    }
+    inicializar_catalogo()
 
-    {:ok, %{productos: productos}}
+    {:ok, %{}}
   end
 
 
   @impl true
   def handle_call(:listar_productos, _from, state) do
-    {:reply, state.productos, state}
+
+    resultado =
+      Libremarket.Repo.query!(
+        "SELECT id, nombre, stock FROM ventas ORDER BY id"
+      )
+
+    productos =
+      Map.new(resultado.rows, fn [id, nombre, stock] ->
+        {id, %{nombre: nombre, stock: stock}}
+      end)
+
+    {:reply, productos, state}
   end
 
 
-  # Reserva todos los productos o no reserva ninguno.
   @impl true
   def handle_call({:reservar_productos, productos}, _from, state) do
 
     resultado =
-      Enum.reduce_while(productos, {:ok, state.productos}, fn id_producto, {:ok, productos_actuales} ->
+      Libremarket.Repo.transaction(fn ->
 
-        case Map.get(productos_actuales, id_producto) do
+        Enum.each(productos, fn id_producto ->
 
-          nil ->
-            {:halt, {:error, :el_producto_no_existe}}
+          actualizacion =
+            Libremarket.Repo.query!(
+              """
+              UPDATE ventas
+              SET stock = stock - 1
+              WHERE id = $1 AND stock > 0
+              """,
+              [id_producto]
+            )
 
-          producto ->
-            case Libremarket.Ventas.reservar_productos(producto) do
+          if actualizacion.num_rows == 0 do
 
-              :productos_reservados ->
-                producto_actualizado =
-                  Map.update!(producto, :stock, fn stock -> stock - 1 end)
+            existe =
+              Libremarket.Repo.query!(
+                "SELECT EXISTS (SELECT 1 FROM ventas WHERE id = $1)",
+                [id_producto]
+              )
 
-                nuevos_productos =
-                  Map.put(productos_actuales, id_producto, producto_actualizado)
+            case existe.rows do
+              [[true]] ->
+                Libremarket.Repo.rollback(:out_of_stock)
 
-                {:cont, {:ok, nuevos_productos}}
-
-              :out_of_stock ->
-                {:halt, {:error, :out_of_stock}}
-
+              [[false]] ->
+                Libremarket.Repo.rollback(:el_producto_no_existe)
             end
-        end
+
+          end
+
+        end)
+
+        :productos_reservados
+
       end)
 
-    case resultado do
+    respuesta =
+      case resultado do
+        {:ok, _} ->
+          {:ok, :productos_reservados}
 
-      {:ok, productos_actualizados} ->
-        nuevo_estado = %{state | productos: productos_actualizados}
+        {:error, motivo} ->
+          {:error, motivo}
+      end
 
-        {:reply, {:ok, :productos_reservados}, nuevo_estado}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-
-    end
+    {:reply, respuesta, state}
   end
 
 
-  # Libera el stock de todos los productos indicados.
   @impl true
   def handle_call({:liberar_productos, productos}, _from, state) do
 
-    productos_actualizados =
-      Enum.reduce(productos, state.productos, fn id_producto, acc_productos ->
+    Libremarket.Repo.transaction(fn ->
 
-        case Map.get(acc_productos, id_producto) do
+      Enum.each(productos, fn id_producto ->
 
-          nil ->
-            acc_productos
+        Libremarket.Repo.query!(
+          """
+          UPDATE ventas
+          SET stock = stock + 1
+          WHERE id = $1
+          """,
+          [id_producto]
+        )
 
-          producto ->
-            producto_actualizado =
-              Map.update!(producto, :stock, fn stock -> stock + 1 end)
-
-            Map.put(acc_productos, id_producto, producto_actualizado)
-
-        end
       end)
 
-    nuevo_estado = %{state | productos: productos_actualizados}
+    end)
 
-    {:reply, {:ok, :productos_liberados}, nuevo_estado}
+    {:reply, {:ok, :productos_liberados}, state}
+  end
+
+
+  ##########################
+  # FUNCIONES INTERNAS
+  ##########################
+
+  defp inicializar_catalogo do
+
+    catalogo_vacio =
+      Libremarket.Repo.query!(
+        "SELECT NOT EXISTS (SELECT 1 FROM ventas)"
+      )
+
+    case catalogo_vacio.rows do
+
+      [[true]] ->
+
+        productos = [
+          "Notebook",
+          "Mouse",
+          "Keyboard",
+          "Monitor",
+          "Auriculares",
+          "Webcam",
+          "Parlante",
+          "Microfono",
+          "Tablet",
+          "Impresora"
+        ]
+
+        {:ok, _resultado} =
+          Libremarket.Repo.transaction(fn ->
+
+            Enum.each(productos, fn nombre ->
+
+              Libremarket.Repo.query!(
+                """
+                INSERT INTO ventas (nombre, stock)
+                VALUES ($1, $2)
+                """,
+                [nombre, :rand.uniform(10)]
+              )
+
+            end)
+
+          end)
+
+      [[false]] ->
+        :ok
+
+    end
+
   end
 
 end
