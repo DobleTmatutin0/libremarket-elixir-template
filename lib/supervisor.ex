@@ -15,6 +15,7 @@ defmodule Libremarket.Supervisor do
       {Libremarket.Compras.Server, %{}},
       {Libremarket.Envios.Server, %{}},
       {Libremarket.Infracciones.Server, %{}},
+      {Libremarket.FailoverMonitor, %{}},
       {Bandit, plug: Libremarket.Router, port: 4000}
     ]
 
